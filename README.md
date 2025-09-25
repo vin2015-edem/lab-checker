@@ -29,11 +29,19 @@
 
 ## Структура репозиторію
 lab-checker/
+
 ├─ app.py
+
 ├─ prompts.json
+
 ├─ requirements.txt
+
 ├─ fonts/
+
 │ └─ DejaVuSans.ttf
+
 ├─ data/
+
 │ └─ audit.jsonl # створюється автоматично під час роботи
+
 └─ README.md
