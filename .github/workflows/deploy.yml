@@ -3,18 +3,65 @@ name: Deploy to Hugging Face Space
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
-      - name: Push to Hugging Face
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies (huggingface_hub, git-lfs)
         run: |
-          git config --global user.email "vbmokin@gmail.com"
-          git config --global user.name "github-actions[bot]"
-          git remote add space https://huggingface.co/spaces/vbmokin/lab-checker
-          git push --force space main
+          pip install --no-cache-dir huggingface_hub==0.24.6
+          git lfs install
+
+      - name: Ensure Space exists (create if missing)
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}
+        run: |
+          python - << 'PY'
+          import os
+          from huggingface_hub import HfApi
+          token = os.environ["HF_TOKEN"]
+          space_id = os.environ["HF_SPACE_ID"]  # format: owner/space_name
+          api = HfApi(token=token)
+
+          api.create_space(
+              repo_id=space_id,
+              space_sdk="streamlit",
+              private=False,
+              exist_ok=True
+          )
+          print(f"Space ensured: {space_id}")
+          PY
+
+      - name: Push repo content to Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Add remoute repository Space (with token)
+          HF_URL="https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_ID}.git"
+          if git remote | grep -q '^hf$'; then
+            git remote set-url hf "$HF_URL"
+          else
+            git remote add hf "$HF_URL"
+          fi
+
+          # Push a HEAD branch to the main Space
+          git push hf HEAD:main --force
