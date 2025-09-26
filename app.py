@@ -29,7 +29,7 @@ TEACHER_PASSWORD = os.environ.get("TEACHER_PASSWORD", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # Опційно для аудиту у Datasets
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+HF_SPACE_TOKEN = os.environ.get("HF_SPACE_TOKEN", "")
 AUDIT_DATASET_REPO = os.environ.get("AUDIT_DATASET_REPO", "")
 AUDIT_LOCAL_PATH = "data/audit.jsonl"
 
@@ -176,9 +176,9 @@ def append_audit(record: dict):
     os.makedirs(os.path.dirname(AUDIT_LOCAL_PATH), exist_ok=True)
     with open(AUDIT_LOCAL_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    if HF_TOKEN and AUDIT_DATASET_REPO:
+    if HF_SPACE_TOKEN and AUDIT_DATASET_REPO:
         try:
-            api = HfApi(token=HF_TOKEN)
+            api = HfApi(token=HF_SPACE_TOKEN)
             api.upload_file(
                 path_or_fileobj=AUDIT_LOCAL_PATH,
                 path_in_repo="audit.jsonl",
@@ -393,3 +393,4 @@ with st.expander("Кабінет викладача — перегляд жур�
         st.caption("Введіть пароль викладача, щоб переглянути журнал.")
 
 st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div></div>', unsafe_allow_html=True)
+
