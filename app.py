@@ -49,39 +49,31 @@ REPORT_TYPES = ["Лабораторна робота", "Курсова робо�
 # Groq клієнт
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# --- Кирилиця в PDF: автозавантаження Unicode-шрифтів (без зберігання .ttf у репо) ---
+# --- Кирилиця в PDF: беремо DejaVu з matplotlib (без інтернету та LFS) ---
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-FONT_DIR = "fonts"
-os.makedirs(FONT_DIR, exist_ok=True)
-FONT_REGULAR = os.path.join(FONT_DIR, "DejaVuSans.ttf")
-FONT_BOLD = os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")
-
-def _download(url: str, dst: str):
-    import urllib.request
-    if not os.path.exists(dst):
-        urllib.request.urlretrieve(url, dst)
-
-def _ensure_fonts():
+def _register_dejavu_from_matplotlib():
     try:
-        # Надійні джерела з GitHub (офіційний репозиторій DejaVu)
-        _download("https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf", FONT_REGULAR)
-        _download("https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf", FONT_BOLD)
+        import matplotlib
+        from pathlib import Path
+        ttf_dir = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
+        reg = ttf_dir / "DejaVuSans.ttf"
+        bold = ttf_dir / "DejaVuSans-Bold.ttf"
+        if reg.exists():
+            pdfmetrics.registerFont(TTFont("DejaVuSans", str(reg)))
+            if bold.exists():
+                pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", str(bold)))
+                return "DejaVuSans", "DejaVuSans-Bold"
+            return "DejaVuSans", "DejaVuSans"  # якщо раптом немає bold
     except Exception as e:
-        print("[FONT DOWNLOAD WARN]", e)
+        print("[FONT MATPLOTLIB WARN]", e)
+    # Фолбек (апка не впаде, але кирилиця може відображатись некоректно)
+    return "Helvetica", "Helvetica-Bold"
 
-    try:
-        pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_REGULAR))
-        pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", FONT_BOLD))
-        return "DejaVuSans", "DejaVuSans-Bold"
-    except Exception as e:
-        print("[FONT REGISTER WARN]", e)
-        # Fallback (може ламати кирилицю, але апка не впаде)
-        return "Helvetica", "Helvetica-Bold"
-
-PDF_FONT_NAME, PDF_FONT_BOLD_NAME = _ensure_fonts()
+PDF_FONT_NAME, PDF_FONT_BOLD_NAME = _register_dejavu_from_matplotlib()
 # --- кінець блоку шрифтів ---
+
 
 # ---------- Допоміжні функції ----------
 
@@ -448,6 +440,7 @@ with st.expander("Кабінет викладача — перегляд жур�
         st.caption("Введіть пароль викладача, щоб переглянути журнал.")
 
 st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div></div>', unsafe_allow_html=True)
+
 
 
 
