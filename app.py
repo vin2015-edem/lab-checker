@@ -227,8 +227,11 @@ btn = st.button("Перевірити")
 # Кнопка завантаження локального аудиту
 if os.path.exists(AUDIT_LOCAL_PATH):
     with open(AUDIT_LOCAL_PATH, "rb") as f:
-        st.download_button("Завантажити журнал аудиту (JSONL)", data=f,
-                           file_name="audit.jsonl", mime="application/jsonl")
+        audit_bytes = f.read()
+    st.download_button("Завантажити журнал аудиту (JSONL)",
+                       data=audit_bytes,
+                       file_name="audit.jsonl",
+                       mime="application/json")
 
 if btn:
     if uploaded is None:
@@ -393,4 +396,5 @@ with st.expander("Кабінет викладача — перегляд жур�
         st.caption("Введіть пароль викладача, щоб переглянути журнал.")
 
 st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div></div>', unsafe_allow_html=True)
+
 
