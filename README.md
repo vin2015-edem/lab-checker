@@ -1,3 +1,10 @@
+---
+title: lab-checker
+sdk: streamlit
+app_file: app.py
+pinned: false
+---
+
 # Lab Checker — Streamlit + Llama 3.1 (Groq) (Hugging Face Spaces)
 
 Сервіс для перевірки якості виконання студентських робіт (лабораторні, курсові, індивідуальні завдання) з використанням **llama-3.1-8b-instant (Groq API)**.  
