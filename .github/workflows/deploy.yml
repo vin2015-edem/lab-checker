@@ -1,0 +1,20 @@
+name: Deploy to Hugging Face Space
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Push to Hugging Face
+        run: |
+          git config --global user.email "vbmokin@gmail.com"
+          git config --global user.name "github-actions[bot]"
+          git remote add space https://huggingface.co/spaces/vbmokin/lab-checker
+          git push --force space main
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
