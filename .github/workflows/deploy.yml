@@ -31,28 +31,31 @@ jobs:
 
       - name: Ensure Space exists (create if missing)
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}   # формат: owner/space_name
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}          
+          HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}    
         run: |
           python - << 'PY'
           import os
-          from huggingface_hub import HfApi
+          from huggingface_hub import HfApi, HFValidationError
 
           token = os.environ["HF_TOKEN"]
           space_id = os.environ["HF_SPACE_ID"]
           api = HfApi(token=token)
 
-          # Створює (або нічого не робить, якщо вже існує)
-          api.create_repo(
-              repo_id=space_id,
-              repo_type="space",
-              space_sdk="streamlit",
-              private=False,
-              exist_ok=True
-          )
-          print(f"Space ensured: {space_id}")
+          # Створюємо Space БЕЗ параметра SDK (його вкаже README метаданими)
+          try:
+              api.create_repo(
+                  repo_id=space_id,
+                  repo_type="space",
+                  private=False,
+                  exist_ok=True
+              )
+              print(f"Space ensured: {space_id}")
+          except HFValidationError as e:
+              # якщо репозиторій вже існує – це ок
+              print(f"Validation warning: {e}")
           PY
-
+          
       - name: Push repo content to Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
