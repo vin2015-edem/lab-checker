@@ -44,10 +44,6 @@ lab-checker/
 
 ├─ requirements.txt
 
-├─ fonts/
-
-│ └─ DejaVuSans.ttf
-
 ├─ data/
 
 │ └─ audit.jsonl # створюється автоматично під час роботи
