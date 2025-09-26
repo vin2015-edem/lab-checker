@@ -63,7 +63,7 @@ jobs:
               print(f"Space created: {space_id}")
           PY
           
-      - name: Push repo content to Space
+      - name: Push repo content to Space (orphan snapshot, no history)
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}
@@ -72,13 +72,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Add remoute repository Space (with token)
+          # налаштувати remote на Space з токеном
+          set +x
           HF_URL="https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_ID}.git"
+          set -x
           if git remote | grep -q '^hf$'; then
             git remote set-url hf "$HF_URL"
           else
             git remote add hf "$HF_URL"
           fi
+
+          # створюємо "чисту" орфан-гілку зі СТАНОМ робочої теки (без попередньої історії)
+          git checkout --orphan hf-deploy
+          git rm -rf --cached . 2>/dev/null || true
+          git add -A
+          git commit -m "CI deploy snapshot"
+          git push hf hf-deploy:main --force
 
           # Push a HEAD branch to the main Space
           git push hf HEAD:main --force
