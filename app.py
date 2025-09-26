@@ -9,58 +9,55 @@ from datetime import datetime
 from collections import deque
 from typing import List, Tuple
 
-# --- PDF feedback (Unicode PDF) ---
+# PDF feedback (Unicode PDF)
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
-# --- Gemini ---
-import google.generativeai as genai
+# Groq LLM
+from groq import Groq
 
-# --- Optional: push audit to HF Datasets ---
+# Optional: push audit to HF Datasets
 from huggingface_hub import HfApi
 
 APP_TITLE = "Перевірка якості робіт студентів"
 
-# Простий пароль беремо з секретів, а не з коду (безпека краще, але все одно "простий")
+# Паролі й ключі через секрети HF Spaces
 SIMPLE_PASSWORD = os.environ.get("APP_PASSWORD", "class2025")
+TEACHER_PASSWORD = os.environ.get("TEACHER_PASSWORD", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-# API ключ Gemini
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-
-# Опціонально для аудиту в Datasets
+# Опційно для аудиту у Datasets
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
-AUDIT_DATASET_REPO = os.environ.get("AUDIT_DATASET_REPO", "")  # наприклад: "your-username/lab-checker-audit"
+AUDIT_DATASET_REPO = os.environ.get("AUDIT_DATASET_REPO", "")
 AUDIT_LOCAL_PATH = "data/audit.jsonl"
 
-# Менеджер запитів (5 req/min)
+# Менеджер запитів (2 req/min за замовчуванням)
 REQUEST_WINDOW_SEC = 60
-REQUEST_LIMIT = 5
+REQUEST_LIMIT = 2
 _request_times = deque(maxlen=REQUEST_LIMIT * 2)
 
-# Дисципліни / типи
+# Довідники
 DEFAULT_DISCIPLINES = [
-    "Інформаційні технології моніторингу та аналізу даних",
     "Системний аналіз",
-    "Штучний інтелект і машинне навчання",
+    "Інформаційні технології аналізу даних",
     "Інтелектуальний аналіз даних",
 ]
-REPORT_TYPES = ["Лабораторна робота", "Індивідуальне завдання", "Курсова робота"]
+REPORT_TYPES = ["Лабораторна робота", "Курсова робота", "Індивідуальне завдання"]
 
-# Налаштування Gemini
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# Groq клієнт
+client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# Завантаження шрифту для кирилиці
+# Шрифт для кирилиці в PDF
 FONT_PATH = "fonts/DejaVuSans.ttf"
 if os.path.exists(FONT_PATH):
     pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
     PDF_FONT_NAME = "DejaVuSans"
 else:
-    PDF_FONT_NAME = "Helvetica"  # fallback (кирилиця може відобразитись некоректно)
+    PDF_FONT_NAME = "Helvetica"  # fallback (можуть бути проблеми з кирилицею)
 
-# ---- Допоміжні функції ----
+# ---------- Допоміжні функції ----------
 
 @st.cache_resource
 def load_prompts():
@@ -68,26 +65,18 @@ def load_prompts():
         return json.load(f)
 
 def extract_text_pages(file_bytes: bytes) -> List[str]:
-    """Повертає список текстів по сторінках (Unicode OK)."""
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     return [page.get_text("text") for page in doc]
 
 def count_images_in_pages(file_bytes: bytes, page_indices: List[int]) -> int:
-    """Підрахунок зображень на вказаних сторінках (будь-які зображення вважаємо графіками/рисунками)."""
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     cnt = 0
     for i in page_indices:
         if 0 <= i < len(doc):
-            img_list = doc[i].get_images(full=True)
-            cnt += len(img_list)
+            cnt += len(doc[i].get_images(full=True))
     return cnt
 
 def find_section_page_range(pages_text: List[str], title: str) -> Tuple[int, int]:
-    """
-    Евристика: знаходимо першу сторінку з назвою розділу (title, без регістру).
-    Кінець — наступна сторінка з патерном заголовка розділу ("Розділ|Section|Висновки|Conclusions") або кінець документу.
-    Повертаємо (start_page, end_page_inclusive). Якщо не знайдено — (-1, -1).
-    """
     if not title:
         return -1, -1
     title_norm = title.strip().lower()
@@ -98,8 +87,8 @@ def find_section_page_range(pages_text: List[str], title: str) -> Tuple[int, int
             break
     if start == -1:
         return -1, -1
-
-    pattern = re.compile(r"^\s*(Розділ|Section|Висновки|Conclusions)\b", re.IGNORECASE | re.MULTILINE)
+    pattern = re.compile(r"^\s*(Розділ|Section|Висновки|Conclusions)\b",
+                         re.IGNORECASE | re.MULTILINE)
     end = len(pages_text) - 1
     for j in range(start + 1, len(pages_text)):
         if pattern.search(pages_text[j]):
@@ -108,10 +97,9 @@ def find_section_page_range(pages_text: List[str], title: str) -> Tuple[int, int
     return start, end
 
 def build_prompt(mapping, degree, discipline, report_type, work_no, variant):
-    # Ключі за пріоритетом: з номером роботи → без нього
     k_full = f"{degree}|{discipline}|{report_type}|{work_no}|{variant}"
     k_no_variant = f"{degree}|{discipline}|{report_type}|{work_no}"
-    k_legacy = f"{degree}|{discipline}|{report_type}|{variant}"      # на випадок старого формату
+    k_legacy = f"{degree}|{discipline}|{report_type}|{variant}"
     k_simple = f"{degree}|{discipline}|{report_type}"
 
     if k_full in mapping:
@@ -122,26 +110,39 @@ def build_prompt(mapping, degree, discipline, report_type, work_no, variant):
         return mapping[k_legacy], k_legacy
     if k_simple in mapping:
         return mapping[k_simple], k_simple
-    return None, k_full  # повертаємо очікуваний ключ (для повідомлення)
+    return None, k_full
 
-def call_gemini(model_name: str, system_prompt: str, report_text: str) -> str:
-    # Rate-limit: перевіряємо запити за останню хвилину
+def call_llm(system_prompt: str, report_text: str) -> str:
+    """Виклик Llama 3.1 8B через Groq Chat Completions."""
+    # Локальний ліміт запитів
     now = time.time()
     while _request_times and now - _request_times[0] > REQUEST_WINDOW_SEC:
         _request_times.popleft()
     if len(_request_times) >= REQUEST_LIMIT:
-        return "Сервіс перевантажений, прошу зайдіть через 20 секунд."
+        return "Сервіс перевантажений, прошу зайдіть через 30 секунд."
+
+    if client is None:
+        return "Не встановлено GROQ_API_KEY у Secrets (Settings → Secrets)."
 
     try:
-        model = genai.GenerativeModel(model_name)
-        prompt = f"{system_prompt}\n\n=== STUDENT REPORT (EXTRACT) ===\n{report_text[:150000]}"
-        resp = model.generate_content(prompt)
+        messages = [
+            {"role": "system",
+             "content": system_prompt},
+            {"role": "user",
+             "content": "=== STUDENT REPORT (EXTRACT) ===\n" + report_text[:150000]}
+        ]
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            temperature=0.2,
+            max_tokens=2048
+        )
         _request_times.append(now)
-        return (resp.text or "").strip()
+        return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         msg = str(e)
         if "429" in msg or "rate" in msg.lower():
-            return "Сервіс перевантажений, прошу зайдіть через 20 секунд."
+            return "Сервіс перевантажений, прошу зайдіть через 30 секунд."
         return f"Помилка: {msg}"
 
 def make_pdf_from_text(text: str) -> bytes:
@@ -151,9 +152,7 @@ def make_pdf_from_text(text: str) -> bytes:
     left, top, line_h = 40, height - 40, 14
     c.setFont(PDF_FONT_NAME, 11)
     y = top
-    # Просте перенесення рядків
     for line in text.splitlines():
-        # розбиваємо довгі рядки приблизно по 100-110 символів
         while len(line) > 110:
             part, line = line[:110], line[110:]
             if y < 40:
@@ -174,15 +173,12 @@ def make_pdf_from_text(text: str) -> bytes:
     return buffer.read()
 
 def append_audit(record: dict):
-    """Локальний JSONL + опціональний пуш у HF Datasets (якщо задано токен і репозиторій)."""
     os.makedirs(os.path.dirname(AUDIT_LOCAL_PATH), exist_ok=True)
     with open(AUDIT_LOCAL_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
     if HF_TOKEN and AUDIT_DATASET_REPO:
         try:
             api = HfApi(token=HF_TOKEN)
-            # Заливаємо локальний файл як artifact, перезаписуючи попередню версію
             api.upload_file(
                 path_or_fileobj=AUDIT_LOCAL_PATH,
                 path_in_repo="audit.jsonl",
@@ -190,10 +186,9 @@ def append_audit(record: dict):
                 repo_type="dataset",
             )
         except Exception as e:
-            # Не перериваємо роботу, просто лог у консоль
             print("[AUDIT UPLOAD ERROR]", e)
 
-# ---- UI ----
+# ---------- UI ----------
 
 st.set_page_config(page_title=APP_TITLE, page_icon="✅", layout="centered")
 st.markdown(
@@ -204,17 +199,19 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# 1) Доступ
 pwd = st.text_input("Пароль доступу", type="password")
 if pwd != SIMPLE_PASSWORD:
     st.info("Введіть пароль, наданий викладачем.")
     st.stop()
 
+# 2) Параметри
 col1, col2 = st.columns(2)
 degree = col1.selectbox("Рівень навчання", ["Бакалавр", "Магістр", "Доктор філософії"])
 discipline = col2.selectbox("Дисципліна", DEFAULT_DISCIPLINES)
 report_type = col1.selectbox("Вид звіту", REPORT_TYPES)
 
-# Номер роботи: для ЛР 1..7, інакше 1
+# Номер роботи
 if report_type == "Лабораторна робота":
     work_no = col2.selectbox("Номер роботи", [str(i) for i in range(1, 8)])
 else:
@@ -227,26 +224,24 @@ section_title = st.text_input("Назва розділу для підрахун
 
 btn = st.button("Перевірити")
 
-# Кнопка завантаження аудиту (локальний файл)
+# Кнопка завантаження локального аудиту
 if os.path.exists(AUDIT_LOCAL_PATH):
     with open(AUDIT_LOCAL_PATH, "rb") as f:
-        st.download_button("Завантажити журнал аудиту (JSONL)", data=f, file_name="audit.jsonl", mime="application/jsonl")
+        st.download_button("Завантажити журнал аудиту (JSONL)", data=f,
+                           file_name="audit.jsonl", mime="application/jsonl")
 
 if btn:
-    if not GEMINI_API_KEY:
-        st.error("Не встановлено GEMINI_API_KEY у Secrets (Settings → Secrets).")
-        st.stop()
-
     if uploaded is None:
         st.warning("Будь ласка, додайте PDF-файл звіту.")
         st.stop()
 
+    # Зчитування PDF
     with st.spinner("Зчитування PDF..."):
         file_bytes = uploaded.getvalue()
         pages_text = extract_text_pages(file_bytes)
         full_text = "\n".join(pages_text)
 
-    # Підрахунок графіків у розділі (за потреби)
+    # Підрахунок графіків
     graphs_msg = ""
     if section_title.strip():
         start, end = find_section_page_range(pages_text, section_title)
@@ -261,17 +256,16 @@ if btn:
             else:
                 graphs_msg = f"⚠️ У розділі «{section_title}» знайдено лише {img_count} графіків/рисунків (<5)."
 
+    # Пошук промпта
     with st.spinner("Підбір промпта..."):
         mapping = load_prompts()
         system_prompt, matched_key = build_prompt(mapping, degree, discipline, report_type, work_no, variant)
 
-    # Якщо промпта нема — показуємо чітке повідомлення і не звертаємося до LLM
     if system_prompt is None:
         msg = (f"Для варіанту \"Рівень - {degree} | Дисципліна \"{discipline}\" | "
                f"{report_type} | № {work_no} | варіант {variant}\" промпту для перевірки не існує - "
                "перевірте параметри і виберіть інші.")
         st.error(msg)
-        # Аудит
         append_audit({
             "ts": datetime.utcnow().isoformat(),
             "user": "student",
@@ -287,21 +281,24 @@ if btn:
         })
         st.stop()
 
-    with st.spinner("Запит до Gemini... (до 5 запитів/хв)"):
-        result_text = call_gemini("gemini-1.5-flash", system_prompt, full_text)
+    # Виклик LLM (Groq)
+    with st.spinner("Запит до Llama 3.1 (Groq)..."):
+        result_text = call_llm(system_prompt, full_text)
 
-    # Додаємо інформацію про графіки (якщо був запит на секцію)
     if graphs_msg:
         result_text = graphs_msg + "\n\n" + result_text
 
     st.subheader("Рекомендації та зауваження")
     st.text_area("Результат", value=result_text, height=320)
 
+    # Завантаження результатів
     txt_bytes = result_text.encode("utf-8")
-    st.download_button("Завантажити як TXT", data=txt_bytes, file_name="lab_feedback.txt", mime="text/plain")
+    st.download_button("Завантажити як TXT", data=txt_bytes,
+                       file_name="lab_feedback.txt", mime="text/plain")
 
     pdf_out = make_pdf_from_text(result_text)
-    st.download_button("Завантажити як PDF", data=pdf_out, file_name="lab_feedback.pdf", mime="application/pdf")
+    st.download_button("Завантажити як PDF", data=pdf_out,
+                       file_name="lab_feedback.pdf", mime="application/pdf")
 
     # Аудит
     append_audit({
@@ -319,23 +316,16 @@ if btn:
         "result": "OK" if not result_text.startswith("Помилка") else "ERROR"
     })
 
-# ==========================
-# К А Б І Н Е Т   В И К Л А Д А Ч А
-# ==========================
-
+# ---------- Кабінет викладача ----------
 import pandas as pd
 
 with st.expander("Кабінет викладача — перегляд журналу / експорт", expanded=False):
     t_pwd = st.text_input("Пароль викладача", type="password", key="teacher_pwd")
-    TEACHER_PASSWORD = os.environ.get("TEACHER_PASSWORD", "")
-
     if t_pwd and TEACHER_PASSWORD and t_pwd == TEACHER_PASSWORD:
         st.success("Доступ дозволено.")
-
         if not os.path.exists(AUDIT_LOCAL_PATH):
             st.info("Локальний журнал ще не створено (файл data/audit.jsonl відсутній).")
         else:
-            # Завантажуємо журнал у DataFrame
             rows = []
             with open(AUDIT_LOCAL_PATH, "r", encoding="utf-8") as f:
                 for line in f:
@@ -347,25 +337,20 @@ with st.expander("Кабінет викладача — перегляд жур�
                 st.info("Журнал порожній.")
             else:
                 df = pd.DataFrame(rows)
-
-                # Нормалізація та допоміжні стовпчики
                 if "ts" in df.columns:
-                    # Парсимо час (UTC) і робимо локальний стовпець дати
                     df["ts"] = pd.to_datetime(df["ts"], errors="coerce")
                     df["date"] = df["ts"].dt.date
 
-                # Ф І Л Ь Т Р И
                 f_col1, f_col2, f_col3 = st.columns(3)
                 degree_filter = f_col1.multiselect("Рівень", sorted(df.get("degree", pd.Series(dtype=str)).dropna().unique()))
                 discipline_filter = f_col2.multiselect("Дисципліна", sorted(df.get("discipline", pd.Series(dtype=str)).dropna().unique()))
-                report_filter = f_col3.multiselect("Вид звіту", sorted(df.get("report_type", pd.Series(dtype=str)).dropna().unique()))
+                report_filter = f_col3.multiselect("Тип звіту", sorted(df.get("report_type", pd.Series(dtype=str)).dropna().unique()))
 
                 f_col4, f_col5, f_col6 = st.columns(3)
                 work_no_filter = f_col4.multiselect("№ роботи", sorted(df.get("work_no", pd.Series(dtype=str)).dropna().unique()))
                 variant_filter = f_col5.multiselect("Варіант", sorted(df.get("variant", pd.Series(dtype=str)).dropna().unique()))
                 result_filter = f_col6.multiselect("Статус результату", sorted(df.get("result", pd.Series(dtype=str)).dropna().unique()))
 
-                # Діапазон дат
                 date_min = df["date"].min() if "date" in df else None
                 date_max = df["date"].max() if "date" in df else None
                 if date_min is not None and date_max is not None:
@@ -373,7 +358,6 @@ with st.expander("Кабінет викладача — перегляд жур�
                 else:
                     date_from, date_to = None, None
 
-                # Застосування фільтрів
                 fdf = df.copy()
                 if degree_filter:
                     fdf = fdf[fdf["degree"].isin(degree_filter)]
@@ -391,38 +375,21 @@ with st.expander("Кабінет викладача — перегляд жур�
                     fdf = fdf[(fdf["date"] >= pd.to_datetime(date_from)) & (fdf["date"] <= pd.to_datetime(date_to))]
 
                 st.caption(f"Записів після фільтрів: {len(fdf)}")
-                st.dataframe(
-                    fdf.sort_values(by="ts", ascending=False),
-                    use_container_width=True
-                )
+                st.dataframe(fdf.sort_values(by="ts", ascending=False), use_container_width=True)
 
-                # Е К С П О Р Т
                 exp_col1, exp_col2 = st.columns(2)
-
-                # CSV
                 csv_bytes = fdf.to_csv(index=False).encode("utf-8-sig")
-                exp_col1.download_button(
-                    "Експорт у CSV",
-                    data=csv_bytes,
-                    file_name="audit_filtered.csv",
-                    mime="text/csv"
-                )
+                exp_col1.download_button("Експорт у CSV", data=csv_bytes,
+                                         file_name="audit_filtered.csv", mime="text/csv")
 
-                # XLSX
                 xlsx_buffer = io.BytesIO()
                 with pd.ExcelWriter(xlsx_buffer, engine="openpyxl") as writer:
                     fdf.to_excel(writer, index=False, sheet_name="audit")
                 xlsx_buffer.seek(0)
-                exp_col2.download_button(
-                    "Експорт у XLSX",
-                    data=xlsx_buffer.getvalue(),
+                exp_col2.download_button("Експорт у XLSX", data=xlsx_buffer.getvalue(),
                     file_name="audit_filtered.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-                st.info("Порада: якщо ви ввімкнули синхронізацію з HF Datasets (HF_TOKEN + AUDIT_DATASET_REPO), локальний журнал буде періодично завантажуватись у датасет.")
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
         st.caption("Введіть пароль викладача, щоб переглянути журнал.")
-
 
 st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div></div>', unsafe_allow_html=True)
