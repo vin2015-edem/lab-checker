@@ -49,13 +49,39 @@ REPORT_TYPES = ["Лабораторна робота", "Курсова робо�
 # Groq клієнт
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# Шрифт для кирилиці в PDF
-FONT_PATH = "fonts/DejaVuSans.ttf"
-if os.path.exists(FONT_PATH):
-    pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_PATH))
-    PDF_FONT_NAME = "DejaVuSans"
-else:
-    PDF_FONT_NAME = "Helvetica"  # fallback (можуть бути проблеми з кирилицею)
+# --- Кирилиця в PDF: автозавантаження Unicode-шрифтів (без зберігання .ttf у репо) ---
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+FONT_DIR = "fonts"
+os.makedirs(FONT_DIR, exist_ok=True)
+FONT_REGULAR = os.path.join(FONT_DIR, "DejaVuSans.ttf")
+FONT_BOLD = os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")
+
+def _download(url: str, dst: str):
+    import urllib.request
+    if not os.path.exists(dst):
+        urllib.request.urlretrieve(url, dst)
+
+def _ensure_fonts():
+    try:
+        # Надійні джерела з GitHub (офіційний репозиторій DejaVu)
+        _download("https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf", FONT_REGULAR)
+        _download("https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf", FONT_BOLD)
+    except Exception as e:
+        print("[FONT DOWNLOAD WARN]", e)
+
+    try:
+        pdfmetrics.registerFont(TTFont("DejaVuSans", FONT_REGULAR))
+        pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", FONT_BOLD))
+        return "DejaVuSans", "DejaVuSans-Bold"
+    except Exception as e:
+        print("[FONT REGISTER WARN]", e)
+        # Fallback (може ламати кирилицю, але апка не впаде)
+        return "Helvetica", "Helvetica-Bold"
+
+PDF_FONT_NAME, PDF_FONT_BOLD_NAME = _ensure_fonts()
+# --- кінець блоку шрифтів ---
 
 # ---------- Допоміжні функції ----------
 
@@ -125,18 +151,21 @@ def call_llm(system_prompt: str, report_text: str) -> str:
         return "Не встановлено GROQ_API_KEY у Secrets (Settings → Secrets)."
 
     try:
+        ua_suffix = (
+            "\n\nВажливо: відповідай українською мовою. "
+            "Будь лаконічним у похвалі, конкретним у зауваженнях."
+        )
         messages = [
-            {"role": "system",
-             "content": system_prompt},
-            {"role": "user",
-             "content": "=== STUDENT REPORT (EXTRACT) ===\n" + report_text[:150000]}
-        ]
+            {"role": "system", "content": (system_prompt or "") + ua_suffix},
+            {"role": "user", "content": "=== STUDENT REPORT (EXTRACT) ===\n" + report_text[:150000]}
+        ]        
         resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages,
             temperature=0.2,
             max_tokens=2048
         )
+       
         _request_times.append(now)
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
@@ -145,28 +174,49 @@ def call_llm(system_prompt: str, report_text: str) -> str:
             return "Сервіс перевантажений, прошу зайдіть через 30 секунд."
         return f"Помилка: {msg}"
 
+from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.lib.pagesizes import A4
+
 def make_pdf_from_text(text: str) -> bytes:
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    left, top, line_h = 40, height - 40, 14
-    c.setFont(PDF_FONT_NAME, 11)
+    left, right_margin = 40, 40
+    usable_width = width - left - right_margin
+    top, bottom_margin = height - 40, 40
+    line_h = 14
+
+    font_name = PDF_FONT_NAME  # "DejaVuSans"
+    font_size = 11
+    c.setFont(font_name, font_size)
+
+    def wrap_line(s: str) -> list[str]:
+        # Обгортка за реальною шириною шрифта
+        words = s.split(" ")
+        lines = []
+        cur = ""
+        for w in words:
+            trial = (cur + " " + w).strip() if cur else w
+            if stringWidth(trial, font_name, font_size) <= usable_width:
+                cur = trial
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+        return lines if lines else [""]
+
     y = top
-    for line in text.splitlines():
-        while len(line) > 110:
-            part, line = line[:110], line[110:]
-            if y < 40:
+    for raw_line in text.splitlines():
+        for line in wrap_line(raw_line):
+            if y < bottom_margin:
                 c.showPage()
-                c.setFont(PDF_FONT_NAME, 11)
+                c.setFont(font_name, font_size)
                 y = top
-            c.drawString(left, y, part)
+            c.drawString(left, y, line)
             y -= line_h
-        if y < 40:
-            c.showPage()
-            c.setFont(PDF_FONT_NAME, 11)
-            y = top
-        c.drawString(left, y, line)
-        y -= line_h
+
     c.showPage()
     c.save()
     buffer.seek(0)
@@ -243,6 +293,8 @@ if btn:
         file_bytes = uploaded.getvalue()
         pages_text = extract_text_pages(file_bytes)
         full_text = "\n".join(pages_text)
+        if len(full_text.strip()) < 50:
+            st.warning("У PDF майже немає текстового шару. Завантажте звіт як *експортований* PDF (не скан).")
 
     # Підрахунок графіків
     graphs_msg = ""
@@ -295,7 +347,7 @@ if btn:
     st.text_area("Результат", value=result_text, height=320)
 
     # Завантаження результатів
-    txt_bytes = result_text.encode("utf-8")
+    txt_bytes = result_text.encode("utf-8-sig")  # UTF-8 + BOM
     st.download_button("Завантажити як TXT", data=txt_bytes,
                        file_name="lab_feedback.txt", mime="text/plain")
 
@@ -396,5 +448,6 @@ with st.expander("Кабінет викладача — перегляд жур�
         st.caption("Введіть пароль викладача, щоб переглянути журнал.")
 
 st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div></div>', unsafe_allow_html=True)
+
 
 
