@@ -236,10 +236,12 @@ st.set_page_config(page_title=APP_TITLE, page_icon="✅", layout="centered")
 st.markdown(
     f"""
     <div style="border:2px solid #1f4ba8; padding:16px; border-radius:8px;">
-      <h2 style="color:#163a7a; margin-top:0;">{APP_TITLE}</h2>
+      <h2 style="color:#163a7a; margin:0; text-align:center;">{APP_TITLE}</h2>
+    </div>
     """,
     unsafe_allow_html=True
 )
+
 
 # 1) Доступ
 pwd = st.text_input("Пароль доступу", type="password")
@@ -439,8 +441,4 @@ with st.expander("Кабінет викладача — перегляд жур�
     else:
         st.caption("Введіть пароль викладача, щоб переглянути журнал.")
 
-st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div></div>', unsafe_allow_html=True)
-
-
-
-
+st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div>', unsafe_allow_html=True)
