@@ -292,19 +292,19 @@ if submitted:
             st.warning("У PDF майже немає текстового шару. Завантажте звіт як *експортований* PDF (не скан).")
 
     # Підрахунок графіків
-    graphs_msg = ""
-    if section_title.strip():
-        start, end = find_section_page_range(pages_text, section_title)
-        if start == -1:
-            graphs_msg = f"Розділ «{section_title}» не знайдено у PDF."
-            section_pages = []
-        else:
-            section_pages = list(range(start, end + 1))
-            img_count = count_images_in_pages(file_bytes, section_pages)
-            if img_count >= 5:
-                graphs_msg = f"✅ У розділі «{section_title}» знайдено щонайменше 5 графіків/рисунків (всього: {img_count})."
-            else:
-                graphs_msg = f"⚠️ У розділі «{section_title}» знайдено лише {img_count} графіків/рисунків (<5)."
+    # graphs_msg = ""
+    # if section_title.strip():
+    #     start, end = find_section_page_range(pages_text, section_title)
+    #     if start == -1:
+    #         graphs_msg = f"Розділ «{section_title}» не знайдено у PDF."
+    #         section_pages = []
+    #     else:
+    #         section_pages = list(range(start, end + 1))
+    #         img_count = count_images_in_pages(file_bytes, section_pages)
+    #         if img_count >= 5:
+    #             graphs_msg = f"✅ У розділі «{section_title}» знайдено щонайменше 5 графіків/рисунків (всього: {img_count})."
+    #         else:
+    #             graphs_msg = f"⚠️ У розділі «{section_title}» знайдено лише {img_count} графіків/рисунків (<5)."
 
     # Пошук промпта
     with st.spinner("Підбір промпта..."):
@@ -336,8 +336,8 @@ if submitted:
         result_text = call_llm(system_prompt, full_text)
 
     # Формуємо result_text
-    if graphs_msg:
-        result_text = graphs_msg + "\n\n" + result_text
+    # if graphs_msg:
+    #     result_text = graphs_msg + "\n\n" + result_text
 
     result_box = st.empty()
     download_box = st.empty()
@@ -366,7 +366,7 @@ if submitted:
         "variant": variant,
         "filename": uploaded.name,
         "section_title": section_title,
-        "graphs_note": graphs_msg,
+        #"graphs_note": graphs_msg,
         "prompt_key_used": matched_key,
         "result": "OK" if not result_text.startswith("Помилка") else "ERROR"
     })
@@ -449,3 +449,4 @@ with st.expander("Кабінет викладача — перегляд жур�
 
 #st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div>', unsafe_allow_html=True)
 st.caption("Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.")
+
