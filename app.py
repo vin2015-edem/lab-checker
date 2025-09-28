@@ -421,7 +421,7 @@ with st.expander("Кабінет викладача — перегляд жур�
                 if result_filter:
                     fdf = fdf[fdf["result"].isin(result_filter)]
                 if date_from is not None and date_to is not None and "date" in fdf:
-                    fdf = fdf[(fdf["date"] >= pd.to_datetime(date_from)) & (fdf["date"] <= pd.to_datetime(date_to))]
+                    fdf = fdf[(fdf["date"] >= date_from) & (fdf["date"] <= date_to)]
 
                 st.caption(f"Записів після фільтрів: {len(fdf)}")
                 st.dataframe(fdf.sort_values(by="ts", ascending=False), use_container_width=True)
@@ -442,3 +442,4 @@ with st.expander("Кабінет викладача — перегляд жур�
         st.caption("Введіть пароль викладача, щоб переглянути журнал.")
 
 st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div>', unsafe_allow_html=True)
+
