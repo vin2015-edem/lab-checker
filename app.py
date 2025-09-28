@@ -149,10 +149,14 @@ def call_llm(system_prompt: str, report_text: str) -> str:
             "\n\nВажливо: відповідай українською мовою. "
             "Будь лаконічним у похвалі, конкретним у зауваженнях."
         )
+
+        hint = f"GRAPH_SECTION_HINT: {section_title.strip() or 'AUTO'}\nGRAPH_SECTION_RANGE_DEFAULT: BETWEEN \"Хід роботи\" AND \"Висновки\""
+        user_content = hint + "\n=== STUDENT REPORT (EXTRACT) ===\n" + report_text[:150000]
         messages = [
-            {"role": "system", "content": (system_prompt or "") + ua_suffix},
-            {"role": "user", "content": "=== STUDENT REPORT (EXTRACT) ===\n" + report_text[:150000]}
-        ]        
+          {"role": "system", "content": (system_prompt or "") + ua_suffix},
+          {"role": "user", "content": user_content}
+        ]
+        
         resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages,
@@ -449,4 +453,5 @@ with st.expander("Кабінет викладача — перегляд жур�
 
 #st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div>', unsafe_allow_html=True)
 st.caption("Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.")
+
 
