@@ -8,6 +8,8 @@ import streamlit as st
 from datetime import datetime
 from collections import deque
 from typing import List, Tuple
+import logging
+logging.basicConfig(level=logging.INFO)
 
 # PDF feedback (Unicode PDF)
 from reportlab.pdfbase import pdfmetrics
@@ -67,7 +69,7 @@ def _register_dejavu_from_matplotlib():
                 return "DejaVuSans", "DejaVuSans-Bold"
             return "DejaVuSans", "DejaVuSans"  # якщо раптом немає bold
     except Exception as e:
-        print("[FONT MATPLOTLIB WARN]", e)
+        logging.warning("[FONT MATPLOTLIB WARN] %s", e)
     # Фолбек (апка не впаде, але кирилиця може відображатись некоректно)
     return "Helvetica", "Helvetica-Bold"
 
@@ -228,7 +230,7 @@ def append_audit(record: dict):
                 repo_type="dataset",
             )
         except Exception as e:
-            print("[AUDIT UPLOAD ERROR]", e)
+            logging.error("[AUDIT UPLOAD ERROR] %s", e)
 
 # ---------- UI ----------
 
@@ -242,7 +244,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
 # 1) Доступ
 pwd = st.text_input("Пароль доступу", type="password")
 if pwd != SIMPLE_PASSWORD:
@@ -250,23 +251,23 @@ if pwd != SIMPLE_PASSWORD:
     st.stop()
 
 # 2) Параметри
-col1, col2 = st.columns(2)
-degree = col1.selectbox("Рівень навчання", ["Бакалавр", "Магістр", "Доктор філософії"])
-discipline = col2.selectbox("Дисципліна", DEFAULT_DISCIPLINES)
-report_type = col1.selectbox("Вид звіту", REPORT_TYPES)
+with st.form("check_form", clear_on_submit=False):
+    col1, col2 = st.columns(2)
+    degree = col1.selectbox("Рівень навчання", ["Бакалавр", "Магістр", "Доктор філософії"])
+    discipline = col2.selectbox("Дисципліна", DEFAULT_DISCIPLINES)
+    report_type = col1.selectbox("Вид звіту", REPORT_TYPES)
 
-# Номер роботи
-if report_type == "Лабораторна робота":
-    work_no = col2.selectbox("Номер роботи", [str(i) for i in range(1, 8)])
-else:
-    work_no = col2.selectbox("Номер роботи", ["1"])
+    if report_type == "Лабораторна робота":
+        work_no = col2.selectbox("Номер роботи", [str(i) for i in range(1, 8)])
+    else:
+        work_no = col2.selectbox("Номер роботи", ["1"])
 
-variant = col1.selectbox("Варіант", [str(i) for i in range(1, 21)])
+    variant = col1.selectbox("Варіант", [str(i) for i in range(1, 21)])
 
-uploaded = st.file_uploader("Завантажте PDF-звіт студента", type=["pdf"])
-section_title = st.text_input("Назва розділу для підрахунку графіків (необов’язково)")
+    uploaded = st.file_uploader("Завантажте PDF-звіт студента", type=["pdf"])
+    section_title = st.text_input("Назва розділу для підрахунку графіків (необов’язково)")
 
-btn = st.button("Перевірити")
+    submitted = st.form_submit_button("Перевірити")
 
 # Кнопка завантаження локального аудиту
 if os.path.exists(AUDIT_LOCAL_PATH):
@@ -277,7 +278,7 @@ if os.path.exists(AUDIT_LOCAL_PATH):
                        file_name="audit.jsonl",
                        mime="application/json")
 
-if btn:
+if submitted:
     if uploaded is None:
         st.warning("Будь ласка, додайте PDF-файл звіту.")
         st.stop()
@@ -334,20 +335,25 @@ if btn:
     with st.spinner("Запит до Llama 3.1 (Groq)..."):
         result_text = call_llm(system_prompt, full_text)
 
+    # Формуємо result_text
     if graphs_msg:
         result_text = graphs_msg + "\n\n" + result_text
 
-    st.subheader("Рекомендації та зауваження")
-    st.text_area("Результат", value=result_text, height=320)
+    result_box = st.empty()
+    download_box = st.empty()
 
-    # Завантаження результатів
-    txt_bytes = result_text.encode("utf-8-sig")  # UTF-8 + BOM
-    st.download_button("Завантажити як TXT", data=txt_bytes,
-                       file_name="lab_feedback.txt", mime="text/plain")
+    with result_box:
+        st.subheader("Рекомендації та зауваження")
+        st.text_area("Результат", value=result_text, height=320)
 
-    pdf_out = make_pdf_from_text(result_text)
-    st.download_button("Завантажити як PDF", data=pdf_out,
-                       file_name="lab_feedback.pdf", mime="application/pdf")
+    with download_box:
+        txt_bytes = result_text.encode("utf-8-sig")
+        st.download_button("Завантажити як TXT", data=txt_bytes,
+                           file_name="lab_feedback.txt", mime="text/plain")
+
+        pdf_out = make_pdf_from_text(result_text)
+        st.download_button("Завантажити як PDF", data=pdf_out,
+                           file_name="lab_feedback.pdf", mime="application/pdf")
 
     # Аудит
     append_audit({
@@ -441,5 +447,5 @@ with st.expander("Кабінет викладача — перегляд жур�
     else:
         st.caption("Введіть пароль викладача, щоб переглянути журнал.")
 
-st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div>', unsafe_allow_html=True)
-
+#st.markdown('<div style="text-align:right;color:#163a7a;">Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.</div>', unsafe_allow_html=True)
+st.caption("Розроблено в НДЛ ШІК та НДЛ ПВШ кафедри САІТ ФІІТА ВНТУ у 2025 р.")
