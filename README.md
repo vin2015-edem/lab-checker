@@ -5,7 +5,8 @@ app_file: app.py
 pinned: false
 ---
 
-# Lab Checker — Streamlit + Llama 3.1 (Groq) (Hugging Face Spaces)
+# AI Lab Checker
+## Streamlit + Llama 3.1 (Groq) (Hugging Face Spaces)
 
 Сервіс для перевірки якості виконання студентських робіт (лабораторні, курсові, індивідуальні завдання) з використанням **llama-3.1-8b-instant (Groq API)**.  
 Працює безкоштовно на **Hugging Face Spaces** (Streamlit), код зберігається на **GitHub**.
@@ -49,3 +50,11 @@ lab-checker/
 │ └─ audit.jsonl # створюється автоматично під час роботи
 
 └─ README.md
+
+---
+
+## Автор
+Проєкт розробив [Віталій Мокін](https://sait.vntu.edu.ua/kafedra/sklad-kafedry/mokin-vitalii-borysovych/) —  
+доктор технічних наук, професор, Kaggle Grandmaster,  
+науковий керівник НДЛ штучного інтелекту та НДЛ по проблемах вищої школи,  
+завідувач кафедри САІТ Вінницького національного технічного університету.
